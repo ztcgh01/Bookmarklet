@@ -1,0 +1,1 @@
+javascript:(()=>{let s=document.createElement('script');s.src='https://ztcgh01.github.io/Bookmarklet/loader.js?v='+Date.now();s.onerror=()=>alert('런처 로드 실패');document.documentElement.appendChild(s)})()

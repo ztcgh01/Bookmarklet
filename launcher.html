@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Bookmarklet Launcher</title>
+<style>
+:root{
+  --bg:#fff;--soft:#f7f7f8;--line:#e8e8eb;--text:#111214;--muted:#777b84;
+  --shadow:0 16px 44px rgba(0,0,0,.18);
+}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;background:transparent;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text)}
+button,input,textarea{font:inherit}
+button{color:inherit}
+.shell{
+  width:100%;height:100%;background:var(--bg);border:1px solid rgba(0,0,0,.09);
+  border-radius:18px;box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;
+}
+.header{
+  height:54px;display:flex;align-items:center;gap:8px;padding:0 10px 0 14px;
+  border-bottom:1px solid var(--line);background:#fff;user-select:none;touch-action:none;
+}
+.title{font-weight:850;font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.iconbtn{
+  width:34px;height:34px;border:1px solid var(--line);background:#fff;border-radius:10px;
+  display:grid;place-items:center;font-weight:800;font-size:16px;padding:0;
+}
+.iconbtn:active,.tool:active,.primary:active,.ghost:active{transform:scale(.98)}
+.toolbar{display:flex;gap:7px;padding:9px 10px;border-bottom:1px solid var(--line);background:#fff}
+.search{
+  flex:1;min-width:0;height:36px;border:1px solid var(--line);background:var(--soft);
+  border-radius:10px;padding:0 11px;outline:none;font-size:13px;
+}
+.search:focus{border-color:#c9c9ce;background:#fff}
+.addbtn{
+  height:36px;padding:0 12px;border:1px solid var(--line);background:#111;color:#fff;
+  border-radius:10px;font-size:12px;font-weight:800;white-space:nowrap;
+}
+.list{flex:1;overflow:auto;padding:7px}
+.empty{padding:34px 16px;text-align:center;color:var(--muted);font-size:13px}
+.tool{
+  width:100%;display:flex;align-items:center;gap:8px;padding:9px 8px;border:0;
+  border-bottom:1px solid #f0f0f2;background:#fff;text-align:left;
+}
+.tool:last-child{border-bottom:0}
+.toolmain{flex:1;min-width:0}
+.toolname{font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.toolnote{font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini{
+  width:28px;height:28px;border:1px solid var(--line);background:#fff;border-radius:8px;
+  display:grid;place-items:center;padding:0;font-size:12px;flex:0 0 auto;
+}
+.footer{height:28px;border-top:1px solid var(--line);display:flex;align-items:center;padding:0 9px;color:#9a9da4;font-size:10px}
+.grip{margin-left:auto;width:15px;height:15px;cursor:nwse-resize;touch-action:none;opacity:.5;
+background:
+linear-gradient(135deg,transparent 0 48%,#777 49% 55%,transparent 56% 100%),
+linear-gradient(135deg,transparent 0 68%,#777 69% 75%,transparent 76% 100%);
+}
+.modalshade{position:fixed;inset:0;background:rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;padding:12px}
+.modal{width:100%;max-height:92%;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:15px;box-shadow:0 14px 40px #0003;padding:13px}
+.modaltitle{font-size:15px;font-weight:850;margin:1px 0 11px}
+.label{font-size:11px;font-weight:800;color:#555;margin:10px 0 4px}
+.in,.ta{width:100%;border:1px solid #dcdce1;border-radius:9px;background:#fff;padding:9px;outline:none;font-size:12px}
+.ta{height:170px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;line-height:1.4}
+.in:focus,.ta:focus{border-color:#aaaeb6}
+.actions{display:flex;gap:7px;margin-top:12px}
+.primary,.ghost,.danger{border-radius:9px;padding:9px 11px;font-size:12px;font-weight:800}
+.primary{flex:1;border:1px solid #111;background:#111;color:#fff}
+.ghost{border:1px solid var(--line);background:#fff}
+.danger{border:1px solid #f0caca;background:#fff;color:#b42323}
+.fab{
+  width:58px;height:58px;border:1px solid rgba(0,0,0,.1);border-radius:18px;background:#fff;
+  box-shadow:0 10px 28px rgba(0,0,0,.2);display:grid;place-items:center;font-size:25px;
+}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="full" class="shell">
+  <div id="drag" class="header">
+    <div class="title">북마클릿 런처</div>
+    <button id="minBtn" class="iconbtn" title="최소화">−</button>
+    <button id="closeBtn" class="iconbtn" title="닫기">×</button>
+  </div>
+  <div class="toolbar">
+    <input id="search" class="search" placeholder="도구 검색">
+    <button id="addBtn" class="addbtn">+ 추가</button>
+  </div>
+  <div id="list" class="list"></div>
+  <div class="footer">
+    <span id="count"></span>
+    <div id="grip" class="grip" title="크기 조절"></div>
+  </div>
+</div>
+
+<button id="fab" class="fab hidden" title="런처 열기">🧃</button>
+
+<script>
+const STORE='bookmarklet_launcher_tools_v2';
+const SIZE='bookmarklet_launcher_size_v2';
+let tools=[];
+let editing=null;
+
+const $=s=>document.querySelector(s);
+const full=$('#full'),fab=$('#fab'),list=$('#list'),search=$('#search'),count=$('#count');
+
+function send(type,p={}){parent.postMessage({type,...p},'*')}
+function load(){
+  try{tools=JSON.parse(localStorage.getItem(STORE)||'[]')}catch{tools=[]}
+  if(!Array.isArray(tools))tools=[];
+  render();
+}
+function save(){localStorage.setItem(STORE,JSON.stringify(tools));render()}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function render(){
+  const q=search.value.trim().toLowerCase();
+  list.innerHTML='';
+  const shown=tools.map((t,i)=>({t,i})).filter(({t})=>!q||(t.name||'').toLowerCase().includes(q)||(t.note||'').toLowerCase().includes(q));
+  count.textContent=tools.length+'개';
+  if(!shown.length){
+    list.innerHTML='<div class="empty">'+(tools.length?'검색 결과가 없습니다.':'등록된 북마클릿이 없습니다.<br><b>+ 추가</b>로 첫 도구를 넣어보세요.')+'</div>';
+    return;
+  }
+  for(const {t,i} of shown){
+    const row=document.createElement('div');row.className='tool';
+    const main=document.createElement('button');main.className='toolmain';main.style.border='0';main.style.background='transparent';main.style.textAlign='left';main.style.padding='0';
+    main.innerHTML='<div class="toolname">'+esc(t.name)+'</div>'+(t.note?'<div class="toolnote">'+esc(t.note)+'</div>':'');
+    main.onclick=()=>send('bm-run',{code:t.code});
+    const up=document.createElement('button');up.className='mini';up.textContent='↑';up.title='위로';
+    const down=document.createElement('button');down.className='mini';down.textContent='↓';down.title='아래로';
+    const edit=document.createElement('button');edit.className='mini';edit.textContent='✎';edit.title='편집';
+    up.onclick=()=>move(i,-1);down.onclick=()=>move(i,1);edit.onclick=()=>openEditor(i);
+    row.append(main,up,down,edit);list.append(row);
+  }
+}
+function move(i,d){
+  const n=i+d;if(n<0||n>=tools.length)return;
+  [tools[i],tools[n]]=[tools[n],tools[i]];save();
+}
+function openEditor(i=null){
+  editing=i;
+  const t=i===null?{name:'',note:'',code:'javascript:'}:tools[i];
+  const shade=document.createElement('div');shade.className='modalshade';
+  shade.innerHTML=`<div class="modal">
+    <div class="modaltitle">${i===null?'북마클릿 추가':'북마클릿 편집'}</div>
+    <div class="label">이름</div><input id="mName" class="in">
+    <div class="label">설명 <span style="font-weight:500;color:#999">(선택)</span></div><input id="mNote" class="in">
+    <div class="label">코드</div><textarea id="mCode" class="ta"></textarea>
+    <div class="actions">
+      <button id="mSave" class="primary">저장</button>
+      ${i===null?'':'<button id="mDelete" class="danger">삭제</button>'}
+      <button id="mCancel" class="ghost">취소</button>
+    </div>
+  </div>`;
+  document.body.append(shade);
+  shade.querySelector('#mName').value=t.name||'';
+  shade.querySelector('#mNote').value=t.note||'';
+  shade.querySelector('#mCode').value=t.code||'';
+  shade.querySelector('#mCancel').onclick=()=>shade.remove();
+  shade.onclick=e=>{if(e.target===shade)shade.remove()};
+  shade.querySelector('#mSave').onclick=()=>{
+    const name=shade.querySelector('#mName').value.trim();
+    const note=shade.querySelector('#mNote').value.trim();
+    let code=shade.querySelector('#mCode').value.trim();
+    if(!name)return alert('이름을 입력해주세요.');
+    if(!code)return alert('북마클릿 코드를 입력해주세요.');
+    if(!/^javascript:/i.test(code))code='javascript:'+code;
+    const obj={id:t.id||('bm_'+Date.now()),name,note,code};
+    if(i===null)tools.push(obj);else tools[i]=obj;
+    save();shade.remove();
+  };
+  const del=shade.querySelector('#mDelete');
+  if(del)del.onclick=()=>{
+    if(confirm(`"${t.name}"을 삭제할까요?`)){tools.splice(i,1);save();shade.remove()}
+  };
+}
+search.oninput=render;
+$('#addBtn').onclick=()=>openEditor();
+$('#closeBtn').onclick=()=>send('bm-close');
+$('#minBtn').onclick=()=>{
+  full.classList.add('hidden');fab.classList.remove('hidden');send('bm-min');
+};
+fab.onclick=()=>{
+  fab.classList.add('hidden');full.classList.remove('hidden');
+  let sz={w:360,h:500};try{sz=JSON.parse(localStorage.getItem(SIZE)||'{}')}catch{}
+  send('bm-restore',{w:sz.w||360,h:sz.h||500});
+};
+
+// Resize
+let resizing=false,startX=0,startY=0,startW=0,startH=0;
+$('#grip').addEventListener('pointerdown',e=>{
+  resizing=true;startX=e.clientX;startY=e.clientY;startW=innerWidth;startH=innerHeight;
+  e.target.setPointerCapture?.(e.pointerId);e.preventDefault();
+});
+$('#grip').addEventListener('pointermove',e=>{
+  if(!resizing)return;
+  const w=Math.max(300,startW+(e.clientX-startX));
+  const h=Math.max(280,startH+(e.clientY-startY));
+  localStorage.setItem(SIZE,JSON.stringify({w,h}));
+  send('bm-resize',{w,h});
+});
+$('#grip').addEventListener('pointerup',()=>resizing=false);
+
+// Drag whole launcher by header
+let dragging=false,dx=0,dy=0;
+$('#drag').addEventListener('pointerdown',e=>{
+  if(e.target.closest('button'))return;
+  dragging=true;dx=e.clientX;dy=e.clientY;
+  e.currentTarget.setPointerCapture?.(e.pointerId);e.preventDefault();
+});
+$('#drag').addEventListener('pointermove',e=>{
+  if(!dragging)return;
+  // parent position is unknown cross-origin; use deltas relative to current iframe box position via screen coords approximation.
+  send('bm-move',{x:Math.max(0,e.screenX-dx),y:Math.max(0,e.screenY-dy)});
+});
+$('#drag').addEventListener('pointerup',()=>dragging=false);
+
+load();
+</script>
+</body>
+</html>
