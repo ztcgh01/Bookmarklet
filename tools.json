@@ -1,7 +1,0 @@
-[
-  {
-    "name": "NAI 입력칸 진단",
-    "note": "Base Prompt / UC / Character Prompt DOM 진단",
-    "url": "./tools/nai-prompt-diag.js"
-  }
-]
