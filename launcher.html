@@ -64,6 +64,11 @@ linear-gradient(135deg,transparent 0 68%,#777 69% 75%,transparent 76% 100%);
 .in,.ta{width:100%;border:1px solid #dcdce1;border-radius:9px;background:#fff;padding:9px;outline:none;font-size:12px}
 .ta{height:170px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;line-height:1.4}
 .in:focus,.ta:focus{border-color:#aaaeb6}
+.codebar{display:flex;align-items:center;gap:7px;margin-top:6px}
+.codecount{flex:1;font-size:10px;color:#8b8f97}
+.codecount.warn{color:#b36a00;font-weight:800}
+.checkbtn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 8px;font-size:10px;font-weight:800}
+.checkok{color:#147a42}.checkbad{color:#b42323}
 .actions{display:flex;gap:7px;margin-top:12px}
 .primary,.ghost,.danger{border-radius:9px;padding:9px 11px;font-size:12px;font-weight:800}
 .primary{flex:1;border:1px solid #111;background:#111;color:#fff}
@@ -139,6 +144,22 @@ function move(i,d){
   const n=i+d;if(n<0||n>=tools.length)return;
   [tools[i],tools[n]]=[tools[n],tools[i]];save();
 }
+
+function stripJS(code){return String(code||'').trim().replace(/^javascript:/i,'')}
+function syntaxCheck(code){
+  const raw=stripJS(code);
+  if(!raw)return {ok:false,msg:'코드가 비어 있습니다.'};
+  try{
+    new Function(raw);
+    return {ok:true,msg:'문법 이상 없음 ✓'};
+  }catch(e){
+    return {ok:false,msg:(e&&e.message)||String(e)};
+  }
+}
+function byteLen(s){
+  try{return new TextEncoder().encode(String(s||'')).length}catch{return String(s||'').length}
+}
+
 function openEditor(i=null){
   editing=i;
   const t=i===null?{name:'',note:'',code:'javascript:'}:tools[i];
@@ -148,6 +169,10 @@ function openEditor(i=null){
     <div class="label">이름</div><input id="mName" class="in">
     <div class="label">설명 <span style="font-weight:500;color:#999">(선택)</span></div><input id="mNote" class="in">
     <div class="label">코드</div><textarea id="mCode" class="ta"></textarea>
+    <div class="codebar">
+      <div id="mCount" class="codecount"></div>
+      <button id="mCheck" class="checkbtn">문법 검사</button>
+    </div>
     <div class="actions">
       <button id="mSave" class="primary">저장</button>
       ${i===null?'':'<button id="mDelete" class="danger">삭제</button>'}
@@ -158,6 +183,26 @@ function openEditor(i=null){
   shade.querySelector('#mName').value=t.name||'';
   shade.querySelector('#mNote').value=t.note||'';
   shade.querySelector('#mCode').value=t.code||'';
+
+  const codeEl=shade.querySelector('#mCode');
+  const countEl=shade.querySelector('#mCount');
+  const checkEl=shade.querySelector('#mCheck');
+  const updateCount=()=>{
+    const chars=codeEl.value.length;
+    const bytes=byteLen(codeEl.value);
+    countEl.textContent=`${chars.toLocaleString()}자 · ${bytes.toLocaleString()} bytes`+(chars>5000?' · 5000자 초과(런처 저장은 가능)':'');
+    countEl.classList.toggle('warn',chars>5000);
+    countEl.classList.remove('checkok','checkbad');
+  };
+  codeEl.addEventListener('input',updateCount);
+  updateCount();
+  checkEl.onclick=()=>{
+    const r=syntaxCheck(codeEl.value);
+    countEl.textContent=`${codeEl.value.length.toLocaleString()}자 · ${byteLen(codeEl.value).toLocaleString()} bytes · ${r.msg}`;
+    countEl.classList.remove('checkok','checkbad','warn');
+    countEl.classList.add(r.ok?'checkok':'checkbad');
+  };
+
   shade.querySelector('#mCancel').onclick=()=>shade.remove();
   shade.onclick=e=>{if(e.target===shade)shade.remove()};
   shade.querySelector('#mSave').onclick=()=>{
@@ -166,6 +211,15 @@ function openEditor(i=null){
     let code=shade.querySelector('#mCode').value.trim();
     if(!name)return alert('이름을 입력해주세요.');
     if(!code)return alert('북마클릿 코드를 입력해주세요.');
+
+    const check=syntaxCheck(code);
+    if(!check.ok){
+      countEl.textContent=`${code.length.toLocaleString()}자 · ${byteLen(code).toLocaleString()} bytes · 문법 오류: ${check.msg}`;
+      countEl.classList.remove('checkok','warn');
+      countEl.classList.add('checkbad');
+      return alert('문법 오류가 있어서 저장하지 않았습니다.\n\n'+check.msg);
+    }
+
     if(!/^javascript:/i.test(code))code='javascript:'+code;
     const obj={id:t.id||('bm_'+Date.now()),name,note,code};
     if(i===null)tools.push(obj);else tools[i]=obj;
@@ -232,6 +286,26 @@ $('#drag').addEventListener('pointermove',e=>{
   send('bm-drag',{dx:e.clientX-dragSX,dy:e.clientY-dragSY});
 });
 $('#drag').addEventListener('pointerup',()=>{dragging=false;send('bm-drop')});
+
+
+// External command bridge: lets an authorized parent ask this launcher iframe
+// to run one saved tool by its visible name.
+window.addEventListener('message',e=>{
+  if(e.source!==parent)return;
+  const d=e.data||{};
+  if(d.type!=='bm-run-tool')return;
+
+  const wanted=String(d.name||'').trim().toLowerCase();
+  const t=tools.find(x=>String(x?.name||'').trim().toLowerCase()===wanted);
+
+  if(!t){
+    parent.postMessage({type:'bm-tool-not-found',name:d.name||''},'*');
+    return;
+  }
+
+  send('bm-run',{code:t.code});
+  if(d.closeAfter)setTimeout(()=>send('bm-close'),120);
+});
 
 load();
 </script>
