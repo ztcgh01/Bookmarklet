@@ -1,0 +1,1 @@
+javascript:(()=>{let s=document.createElement('script');s.src='__LAUNCHER_URL__?v='+Date.now();s.onerror=()=>alert('런처 로드 실패');document.documentElement.appendChild(s)})()
