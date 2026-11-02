@@ -236,20 +236,26 @@ $('#closeBtn').onclick=()=>send('bm-close');
 $('#minBtn').onclick=()=>{
   full.classList.add('hidden');fab.classList.remove('hidden');send('bm-min');
 };
-let fabDrag=false,fabMoved=false,fabSX=0,fabSY=0,fabLX=0,fabLY=0;
+// screenX/Y remain stable while the parent moves this iframe.
+// clientX/Y are iframe-relative and cause feedback jitter during dragging.
+const dragPoint=e=>({x:e.screenX,y:e.screenY});
+let fabDrag=false,fabMoved=false,fabSX=0,fabSY=0,fabPointer=null;
 fab.addEventListener('pointerdown',e=>{
-  fabDrag=true;fabMoved=false;fabSX=e.clientX;fabSY=e.clientY;
+  if(fabDrag)return;
+  const p=dragPoint(e);
+  fabDrag=true;fabMoved=false;fabPointer=e.pointerId;fabSX=p.x;fabSY=p.y;
   fab.setPointerCapture?.(e.pointerId);e.preventDefault();
 });
 fab.addEventListener('pointermove',e=>{
-  if(!fabDrag)return;
-  const dx=e.clientX-fabSX,dy=e.clientY-fabSY;
+  if(!fabDrag||e.pointerId!==fabPointer)return;
+  const p=dragPoint(e),dx=p.x-fabSX,dy=p.y-fabSY;
   if(Math.abs(dx)+Math.abs(dy)>5)fabMoved=true;
   if(fabMoved)send('bm-fab-drag',{dx,dy});
+  e.preventDefault();
 });
 fab.addEventListener('pointerup',e=>{
-  if(!fabDrag)return;
-  fabDrag=false;
+  if(!fabDrag||e.pointerId!==fabPointer)return;
+  fabDrag=false;fabPointer=null;
   if(fabMoved){
     send('bm-fab-drop');
   }else{
@@ -257,6 +263,11 @@ fab.addEventListener('pointerup',e=>{
     let sz={w:360,h:500};try{sz=JSON.parse(localStorage.getItem(SIZE)||'{}')}catch{}
     send('bm-restore',{w:sz.w||360,h:sz.h||500});
   }
+});
+fab.addEventListener('pointercancel',e=>{
+  if(!fabDrag||e.pointerId!==fabPointer)return;
+  fabDrag=false;fabPointer=null;
+  if(fabMoved)send('bm-fab-drop');
 });
 
 // Resize
@@ -275,17 +286,25 @@ $('#grip').addEventListener('pointermove',e=>{
 $('#grip').addEventListener('pointerup',()=>resizing=false);
 
 // Drag whole launcher by header
-let dragging=false,dragSX=0,dragSY=0;
+let dragging=false,dragSX=0,dragSY=0,dragPointer=null;
 $('#drag').addEventListener('pointerdown',e=>{
-  if(e.target.closest('button'))return;
-  dragging=true;dragSX=e.clientX;dragSY=e.clientY;
+  if(e.target.closest('button')||dragging)return;
+  const p=dragPoint(e);
+  dragging=true;dragPointer=e.pointerId;dragSX=p.x;dragSY=p.y;
   e.currentTarget.setPointerCapture?.(e.pointerId);e.preventDefault();
 });
 $('#drag').addEventListener('pointermove',e=>{
-  if(!dragging)return;
-  send('bm-drag',{dx:e.clientX-dragSX,dy:e.clientY-dragSY});
+  if(!dragging||e.pointerId!==dragPointer)return;
+  const p=dragPoint(e);
+  send('bm-drag',{dx:p.x-dragSX,dy:p.y-dragSY});
+  e.preventDefault();
 });
-$('#drag').addEventListener('pointerup',()=>{dragging=false;send('bm-drop')});
+function endHeaderDrag(e){
+  if(!dragging||e.pointerId!==dragPointer)return;
+  dragging=false;dragPointer=null;send('bm-drop');
+}
+$('#drag').addEventListener('pointerup',endHeaderDrag);
+$('#drag').addEventListener('pointercancel',endHeaderDrag);
 
 
 // External command bridge: lets an authorized parent ask this launcher iframe
