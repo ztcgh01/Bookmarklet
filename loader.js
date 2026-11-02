@@ -9,7 +9,7 @@ const host=document.createElement('div');
 host.id=ROOT;
 Object.assign(host.style,{
   position:'fixed',right:'16px',bottom:'16px',
-  width:'360px',height:'500px',
+  width:'38px',height:'38px',
   zIndex:'2147483647',border:'0',background:'transparent',
   pointerEvents:'auto'
 });
@@ -22,7 +22,7 @@ host.appendChild(fr);
 document.documentElement.appendChild(host);
 
 const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
-let mode='full';
+let mode='fab';
 let dragStart=null;
 let dragFrame=0, dragPending=null;
 function paintDrag(){dragFrame=0;if(!dragPending||!dragStart)return;const x=clamp(dragStart.x+dragPending.dx,0,Math.max(0,innerWidth-host.offsetWidth));const y=clamp(dragStart.y+dragPending.dy,0,Math.max(0,innerHeight-host.offsetHeight));host.style.transform=`translate3d(${x-dragStart.x}px,${y-dragStart.y}px,0)`;}
