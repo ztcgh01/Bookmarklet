@@ -69,7 +69,7 @@ addEventListener('message',e=>{
   else if(d.type==='bm-min'){
     const r=getRect();
     mode='fab';
-    Object.assign(host.style,{width:'50px',height:'50px'});
+    Object.assign(host.style,{width:'38px',height:'38px'});
     setXY(r.left,r.top);
     savePos();
   }
