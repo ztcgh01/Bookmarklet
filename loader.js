@@ -24,6 +24,10 @@ document.documentElement.appendChild(host);
 const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
 let mode='full';
 let dragStart=null;
+let dragFrame=0, dragPending=null;
+function paintDrag(){dragFrame=0;if(!dragPending||!dragStart)return;const x=clamp(dragStart.x+dragPending.dx,0,Math.max(0,innerWidth-host.offsetWidth));const y=clamp(dragStart.y+dragPending.dy,0,Math.max(0,innerHeight-host.offsetHeight));host.style.transform=`translate3d(${x-dragStart.x}px,${y-dragStart.y}px,0)`;}
+function queueDrag(d){if(!dragStart){const r=getRect();dragStart={x:r.left,y:r.top};host.style.left=r.left+'px';host.style.top=r.top+'px';host.style.right='auto';host.style.bottom='auto';host.style.willChange='transform';}dragPending={dx:+d.dx||0,dy:+d.dy||0};if(!dragFrame)dragFrame=requestAnimationFrame(paintDrag)}
+function finishDrag(){if(dragFrame)cancelAnimationFrame(dragFrame);dragFrame=0;if(dragStart){const d=dragPending||{dx:0,dy:0};host.style.transform='none';setXY(dragStart.x+d.dx,dragStart.y+d.dy);host.style.willChange='auto';}dragPending=null;dragStart=null;savePos()}
 
 function getRect(){return host.getBoundingClientRect()}
 function setXY(x,y){
@@ -89,30 +93,11 @@ addEventListener('message',e=>{
     savePos();
   }
 
-  else if(d.type==='bm-drag'){
-    if(!dragStart){
-      const r=getRect();
-      dragStart={x:r.left,y:r.top};
-    }
-    setXY(dragStart.x+(+d.dx||0),dragStart.y+(+d.dy||0));
+  else if(d.type==='bm-drag'||d.type==='bm-fab-drag'){
+    queueDrag(d);
   }
-
-  else if(d.type==='bm-drop'){
-    dragStart=null;
-    savePos();
-  }
-
-  else if(d.type==='bm-fab-drag'){
-    if(!dragStart){
-      const r=getRect();
-      dragStart={x:r.left,y:r.top};
-    }
-    setXY(dragStart.x+(+d.dx||0),dragStart.y+(+d.dy||0));
-  }
-
-  else if(d.type==='bm-fab-drop'){
-    dragStart=null;
-    savePos();
+  else if(d.type==='bm-drop'||d.type==='bm-fab-drop'){
+    finishDrag();
   }
 });
 
