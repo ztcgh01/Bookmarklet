@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Zeta Persona Quick Editor
 // @namespace    zeta-persona-editor
-// @version      2.6.8
+// @version      2.6.8-profile-fix1
 // @description  현재 방의 유저 페르소나(+추천 프로필) / {{char}} 상세 / 로어북을 자동으로 불러와서, 페이지 이동 없이 바로 수정/자동저장하는 미니 에디터
 // @match        https://zeta-ai.io/*
 // @match        https://*.zeta-ai.io/*
@@ -19,7 +19,7 @@
     }
     window.__ZETA_PERSONA_EDITOR_RUNNING__ = true;
 
-    const VERSION = "2.6.8"; // [v2.6.8] 제목(name)은 2400자 합계와 무관한 별개 20자 제한 필드로 처리(합계 제외, 20자 표시, 탭 나누기 제외)
+    const VERSION = "2.6.8-profile-fix1"; // [v2.6.8] 제목(name)은 2400자 합계와 무관한 별개 20자 제한 필드로 처리(합계 제외, 20자 표시, 탭 나누기 제외)
     // [v2.6.7] {{char}}(플롯) 모드에 "제목(name)" 편집 항목 추가 — 드롭다운에서 선택해 수정/저장 가능
     // [v2.6.6] {{user}} 프로필(직접 만든 것만, 추천프로필 제외) 삭제 버튼 추가
     // [v2.6.5] {{user}} 첫 오픈 시 로컬 캐시(마지막 선택)보다 실제 연결(🔗)된 프로필을 우선 로드하도록 수정
@@ -56,7 +56,14 @@
     let recMeData = null;         // /rooms/{roomId}/user-plot-chat-profiles/me 응답 캐시 (유저창 실제 설명)
     let recMeFetchedForRoom = null; // 이 방에서 recMeData를 "성공적으로" 이미 한 번 가져왔는지
     let recMeFetchInFlight = false;
-    let recMeRecheckDoneForRoom = null; // 이 방에서 "지연 재확인"을 이미 예약했는지 (서버 지연 대응용)
+    let recMeRecheckDoneForRoom = null;
+    let recRefreshSequence = 0;
+    // The creator's template is NOT a verified copy of the user's edited recommendation.
+    function verifiedRecDescription(id) {
+        return recMeData && String(recMeData.plotChatProfileId) === String(id)
+            && typeof recMeData.description === "string" ? recMeData.description : null;
+    }
+    function isRecVerified(id) { return verifiedRecDescription(id) !== null; } // 이 방에서 "지연 재확인"을 이미 예약했는지 (서버 지연 대응용)
     let myLorebooks = [];         // 내 로어북 전체 목록 (각 항목까지 포함)
     let activeLorebookId = null;
     let activeLorebookItemId = null;
@@ -587,10 +594,8 @@
             key: cp.id,
             label: `🌟 추천프로필: ${cp.name || "이름없음"}`,
             get: () => {
-                if (recMeData && recMeData.plotChatProfileId === cp.id && typeof recMeData.description === "string") {
-                    return recMeData.description;
-                }
-                return cp.description || "";
+                const edited = verifiedRecDescription(cp.id);
+                return edited !== null ? edited : (cp.description || "");
             }
         }));
     }
@@ -658,17 +663,17 @@
         recTargets.forEach((t, idx) => {
             const value = REC_KEY_PREFIX + t.key;
             // [v2.4.0] 고정(핀)이 있으면 서버 값(recMeData) 대신 핀을 최우선으로 따른다.
-            const isActive = pinned ? (pinned === value) : (!customActive && !!(recMeData && recMeData.plotChatProfileId === t.key && recMeData.selected));
+            const isActive = pinned ? (pinned === value) : !!(recMeData && recMeData.selected && isRecVerified(t.key));
             entries.push({
                 value,
-                label: `${isActive ? "🔗 " : ""}${t.label} (${t.get().length}자)`,
+                label: `${isActive ? "🔗 " : ""}${t.label} (${t.get().length}자)${isRecVerified(t.key) ? "" : " ⚠ 수정본 미확인"}`,
                 isActive,
                 order: idx
             });
         });
         personaList.forEach((p, idx) => {
             // [v2.4.0] 고정(핀)이 있으면 서버 값(p.selected) 대신 핀을 최우선으로 따른다.
-            const isActive = pinned ? (pinned === p.id) : !!p.selected;
+            const isActive = pinned ? (pinned === p.id) : !(recMeData && recMeData.selected && recMeData.plotChatProfileId && isRecVerified(recMeData.plotChatProfileId)) && !!p.selected;
             entries.push({
                 value: p.id,
                 label: `${isActive ? "🔗 " : ""}${p.name || "(이름없음)"} — ${(p.description || "").slice(0, 12)}`,
@@ -951,7 +956,20 @@
             if (!t) return;
             activePersonaId = key;
             saveSavedPersonaSelection(roomId, key);
-            initSectionsAfterLoad(key, t.get(), personaSectionStorageKey(key));
+            const verified = verifiedRecDescription(recId);
+            if (verified === null) {
+                clearTimeout(saveDebounce);
+                descEl.value = "";
+                descEl.placeholder = "⚠ 수정된 추천 프로필을 확인하지 못했습니다. 제작자 원본을 편집하지 않도록 잠금 처리했습니다.";
+                sectionsState = null;
+                renderSectionUI();
+                updateCount();
+                setSaveState("error", "수정본 조회 실패 · 저장 잠금");
+                rebuildPersonaDropdown();
+                return;
+            }
+            descEl.placeholder = DEFAULT_DESC_PLACEHOLDER;
+            initSectionsAfterLoad(key, verified, personaSectionStorageKey(key));
             updateCount();
             setSaveState("idle", "대기중"); clearErrorDetail();
             rebuildPersonaDropdown();
@@ -972,13 +990,14 @@
     function getActiveConnectedKey() {
         const pinned = getPinnedPersona(roomId);
         if (pinned) return pinned;
-        const selectedCustom = personaList.find(p => p && p.selected);
-        if (selectedCustom) return selectedCustom.id;
+        // A valid room-specific recommendation takes precedence over plot-wide selected flags.
         if (recMeData && recMeData.selected && recMeData.plotChatProfileId) {
             const recTargets = getRecTargets(recRoomData);
             const hit = recTargets.find(t => t.key === recMeData.plotChatProfileId);
-            if (hit) return REC_KEY_PREFIX + hit.key;
+            if (hit && isRecVerified(hit.key)) return REC_KEY_PREFIX + hit.key;
         }
+        const selectedCustom = personaList.find(p => p && p.selected);
+        if (selectedCustom) return selectedCustom.id;
         return null;
     }
 
@@ -1000,6 +1019,8 @@
             }
         }
 
+        // Do not silently restore an unrelated profile when the room's connection is unresolved.
+        if (recRoomData && getRecTargets(recRoomData).length && !connected) return false;
         const saved = getSavedPersonaSelection(roomId);
         if (!saved) return false;
         if (activePersonaId === saved) {
@@ -1069,14 +1090,20 @@
     // null로 굳어버리는 문제가 있었다. 그래서 유저가 사이트 자체 UI(유저프로필 열고 닫기)를
     // 건드려 다른 경로로 재요청이 발생해야만 그제서야 반영되는 것처럼 보였던 것.
     async function refreshRecData() {
+        const forRoom = roomId;
+        const seq = ++recRefreshSequence;
         const [fresh, me] = await Promise.all([fetchRoomFresh(), fetchRecMeFresh()]);
-        if (!fresh || !fresh.plot) return false;
+        if (forRoom !== roomId || seq !== recRefreshSequence || !fresh || !fresh.plot) return false;
         recRoomData = fresh;
         recMeData = me;
-        if (me !== null) {
-            recMeFetchedForRoom = roomId;
+        if (fresh.plot.id && lastPlotId !== fresh.plot.id) {
+            lastPlotId = fresh.plot.id;
+            setCachedPlotId(forRoom, lastPlotId);
+            personaList = [];
         }
-        scheduleRecMeDelayedRecheck(roomId);
+        if (me !== null) recMeFetchedForRoom = forRoom;
+        else recMeFetchedForRoom = null;
+        scheduleRecMeDelayedRecheck(forRoom);
         return true;
     }
 
@@ -1092,7 +1119,7 @@
         setTimeout(async () => {
             if (roomId !== forRoom || !capturedAuth) return;
             const me = await fetchRecMeFresh();
-            if (me !== null) {
+            if (me !== null && forRoom === roomId) {
                 recMeData = me;
                 recMeFetchedForRoom = forRoom;
                 if (mode === "persona") {
@@ -1847,6 +1874,10 @@
 
     async function doAutoSaveRec() {
         if (!isRecKey(activePersonaId)) return;
+        if (!isRecVerified(recIdFromKey(activePersonaId))) {
+            setSaveState("error", "수정본 미확인 · 저장 차단");
+            return;
+        }
         if (!capturedAuth) {
             setSaveState("error", "인증 없음 ❌");
             return;
@@ -2300,6 +2331,8 @@
         if (!lastPlotId) await resolvePlotIdActively();
 
         if (mode === "persona") {
+            // Resolve room-specific connection before refreshing the plot-wide profile list.
+            await refreshRecData();
             if (!capturedAuth || !lastPlotId) {
                 updateStatus();
                 return;
@@ -2316,7 +2349,6 @@
             } catch (err) {
                 console.error("🩶 PersonaEditor 새로고침 실패:", err);
             }
-            await refreshRecData();
             if (!tryApplySavedPersonaSelection() && !activePersonaId) {
                 const selectedCustom = personaList.find(p => p && p.selected);
                 if (selectedCustom) {
@@ -2359,6 +2391,8 @@
     setInterval(() => {
         const id = currentRoomId();
         if (id !== roomId) {
+            ++recRefreshSequence;
+            clearTimeout(saveDebounce);
             roomId = id;
             lastPlotId = getCachedPlotId(roomId);
             personaList = [];
@@ -2378,7 +2412,8 @@
             refreshRoomUI();
             if (mode === "plot") refreshPlotData(false);
             if (mode === "persona") {
-                refreshRecData().then(() => {
+                refreshRecData().then(ok => {
+                    if (!ok || roomId !== id) return;
                     rebuildPersonaDropdown();
                     tryApplySavedPersonaSelection();
                     rebuildPersonaDropdown();
