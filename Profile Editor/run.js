@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Zeta Persona Quick Editor
 // @namespace    zeta-persona-editor
-// @version      2.6.8-profile-fix1
+// @version      2.6.8-profile-fix2
 // @description  현재 방의 유저 페르소나(+추천 프로필) / {{char}} 상세 / 로어북을 자동으로 불러와서, 페이지 이동 없이 바로 수정/자동저장하는 미니 에디터
 // @match        https://zeta-ai.io/*
 // @match        https://*.zeta-ai.io/*
@@ -19,7 +19,7 @@
     }
     window.__ZETA_PERSONA_EDITOR_RUNNING__ = true;
 
-    const VERSION = "2.6.8-profile-fix1"; // [v2.6.8] 제목(name)은 2400자 합계와 무관한 별개 20자 제한 필드로 처리(합계 제외, 20자 표시, 탭 나누기 제외)
+    const VERSION = "2.6.8-profile-fix2"; // [v2.6.8] 제목(name)은 2400자 합계와 무관한 별개 20자 제한 필드로 처리(합계 제외, 20자 표시, 탭 나누기 제외)
     // [v2.6.7] {{char}}(플롯) 모드에 "제목(name)" 편집 항목 추가 — 드롭다운에서 선택해 수정/저장 가능
     // [v2.6.6] {{user}} 프로필(직접 만든 것만, 추천프로필 제외) 삭제 버튼 추가
     // [v2.6.5] {{user}} 첫 오픈 시 로컬 캐시(마지막 선택)보다 실제 연결(🔗)된 프로필을 우선 로드하도록 수정
@@ -58,6 +58,7 @@
     let recMeFetchInFlight = false;
     let recMeRecheckDoneForRoom = null;
     let recRefreshSequence = 0;
+    let recLastFetchDiagnostic = { status: "not-requested", responseKeys: [] };
     // The creator's template is NOT a verified copy of the user's edited recommendation.
     function verifiedRecDescription(id) {
         return recMeData && String(recMeData.plotChatProfileId) === String(id)
@@ -449,6 +450,7 @@
 
   <div class="row">
     <button id="refresh">새로고침</button>
+    <button id="rec-diagnose" type="button">추천 프로필 진단 (복사)</button>
   </div>
 
   <hr>
@@ -1072,16 +1074,52 @@
     }
 
     async function fetchRecMeFresh() {
-        if (!capturedAuth) return null;
-        try {
-            const res = await originalFetch(REC_PATCH_URL(roomId), {
-                headers: { "Authorization": capturedAuth }
-            });
-            if (!res.ok) return null;
-            return await res.json();
-        } catch {
+        const requestedRoom = roomId;
+        if (!capturedAuth) {
+            recLastFetchDiagnostic = { status: "no-auth", responseKeys: [] };
             return null;
         }
+        try {
+            const res = await originalFetch(REC_PATCH_URL(requestedRoom), {
+                headers: { "Authorization": capturedAuth }
+            });
+            if (!res.ok) {
+                if (requestedRoom === roomId) recLastFetchDiagnostic = { status: "http-" + res.status, responseKeys: [] };
+                return null;
+            }
+            const data = await res.json();
+            if (requestedRoom === roomId) recLastFetchDiagnostic = {
+                status: "http-" + res.status,
+                responseKeys: data && typeof data === "object" ? Object.keys(data) : [],
+                type: Array.isArray(data) ? "array" : typeof data
+            };
+            return data;
+        } catch (err) {
+            if (requestedRoom === roomId) recLastFetchDiagnostic = { status: "network-or-json-error", responseKeys: [], errorType: err && err.name || "Error" };
+            return null;
+        }
+    }
+    function getSafeRecDiagnostic() {
+        const recs = getRecTargets(recRoomData);
+        const me = recMeData;
+        const meId = me && me.plotChatProfileId;
+        return {
+            version: VERSION,
+            roomPresent: !!roomId,
+            roomDataPresent: !!recRoomData,
+            recApi: recLastFetchDiagnostic,
+            recCount: recs.length,
+            recMePresent: !!me,
+            recMeSelected: me && typeof me.selected === "boolean" ? me.selected : "missing",
+            recMeIdPresent: meId !== undefined && meId !== null,
+            recMeIdMatchesTemplate: meId == null ? false : recs.some(t => String(t.key) === String(meId)),
+            recMeDescriptionType: me && typeof me.description,
+            recMeDescriptionLength: me && typeof me.description === "string" ? me.description.length : null,
+            recMeDescriptionIsTemplate: me && typeof me.description === "string" && recs.some(t => String(t.key) === String(meId) && t.get() === me.description) ? "same-as-loaded" : "unknown-or-different",
+            activeType: isRecKey(activePersonaId) ? "recommendation" : activePersonaId ? "custom" : "none",
+            activeRecVerified: isRecKey(activePersonaId) ? isRecVerified(recIdFromKey(activePersonaId)) : null,
+            pinExists: !!getPinnedPersona(roomId)
+        };
     }
 
     // [수정: v2.2.7] fetchRecMeFresh()가 실패(null)해도 "이미 가져왔음"으로 확정짓지 않는다.
@@ -2312,6 +2350,13 @@
     modePlotBtn.addEventListener("click", () => switchMode("plot"));
     modeLorebookBtn.addEventListener("click", () => switchMode("lorebook"));
 
+    el("rec-diagnose").addEventListener("click", async () => {
+        if (!capturedAuth) { alert("인증 정보가 아직 감지되지 않았습니다."); return; }
+        await refreshRecData();
+        const safe = JSON.stringify(getSafeRecDiagnostic(), null, 2);
+        try { await navigator.clipboard.writeText(safe); alert("진단 결과가 복사되었습니다. 인증 토큰과 프로필 본문은 포함되지 않습니다.\n\n" + safe); }
+        catch { prompt("진단 결과를 복사해주세요 (본문·토큰 제외)", safe); }
+    });
     el("refresh").addEventListener("click", async () => {
         if (!lastPlotId) await resolvePlotIdActively();
 
@@ -2497,7 +2542,8 @@
         get recMeData() { return recMeData; },
         get myLorebooks() { return myLorebooks; },
         get activeLorebookId() { return activeLorebookId; },
-        get hasAuth() { return !!capturedAuth; }
+        get hasAuth() { return !!capturedAuth; },
+        diagnoseRecommendation: getSafeRecDiagnostic
     };
 
     console.log(`🩶 Zeta Persona Editor v${VERSION} Ready`);
