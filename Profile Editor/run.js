@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Zeta Persona Quick Editor
 // @namespace    zeta-persona-editor
-// @version      2.6.8-profile-fix3
+// @version      2.6.9
 // @description  현재 방의 유저 페르소나(+추천 프로필) / {{char}} 상세 / 로어북을 자동으로 불러와서, 페이지 이동 없이 바로 수정/자동저장하는 미니 에디터
 // @match        https://zeta-ai.io/*
 // @match        https://*.zeta-ai.io/*
@@ -19,7 +19,7 @@
     }
     window.__ZETA_PERSONA_EDITOR_RUNNING__ = true;
 
-    const VERSION = "2.6.8-profile-fix3"; // [v2.6.8] 제목(name)은 2400자 합계와 무관한 별개 20자 제한 필드로 처리(합계 제외, 20자 표시, 탭 나누기 제외)
+    const VERSION = "2.6.9"; // [v2.6.8] 제목(name)은 2400자 합계와 무관한 별개 20자 제한 필드로 처리(합계 제외, 20자 표시, 탭 나누기 제외)
     // [v2.6.7] {{char}}(플롯) 모드에 "제목(name)" 편집 항목 추가 — 드롭다운에서 선택해 수정/저장 가능
     // [v2.6.6] {{user}} 프로필(직접 만든 것만, 추천프로필 제외) 삭제 버튼 추가
     // [v2.6.5] {{user}} 첫 오픈 시 로컬 캐시(마지막 선택)보다 실제 연결(🔗)된 프로필을 우선 로드하도록 수정
@@ -383,13 +383,37 @@
     font-weight: bold;
   }
   #section-tools-row button:disabled { opacity: 0.4; cursor: default; }
+  .title #theme-toggle { flex:0 0 auto; width:auto; padding:5px 10px; border:1px solid #777; border-radius:7px; font-size:11px; }
+  /* Light theme is scoped to this editor's Shadow DOM, not the Zeta page. */
+  #panel.light { background:#fff; color:#20242b; border-color:#b9c1ca; box-shadow:0 6px 24px rgba(0,0,0,.22); }
+  #panel.light .room, #panel.light .count-row { color:#596371; }
+  #panel.light button { background:#e8ebf0; color:#20242b; border:1px solid #cdd3db; }
+  #panel.light button.primary { background:#d5dce5; }
+  #panel.light button.mode-btn.active { background:#b9c6d7; color:#152232; }
+  #panel.light button:disabled { opacity:.45; }
+  #panel.light input[type="text"], #panel.light textarea { background:#fff; color:#20242b; border-color:#adb7c3; }
+  #panel.light input::placeholder, #panel.light textarea::placeholder { color:#6a7380; opacity:1; }
+  #panel.light select { background-color:#eef5ff; color:#182d47; border-color:#5488c5; }
+  #panel.light select option { background:#fff; color:#20242b; }
+  #panel.light .status { background:#f6f8fa; color:#414b57; border-color:#d2d8e0; }
+  #panel.light .status.ok { background:#f0f8f1; color:#226b3a; border-color:#a4cbb0; }
+  #panel.light .status.bad { background:#fff6e8; color:#915000; border-color:#dfbd8b; }
+  #panel.light .error-detail { background:#fff0f0; color:#a12323; border-color:#d6aaaa; }
+  #panel.light .save-state.saving { color:#975900; }
+  #panel.light .save-state.saved { color:#22753d; }
+  #panel.light .save-state.error, #panel.light .count-row #count.over { color:#b52727; }
+  #panel.light .save-state.idle { color:#647080; }
+  #panel.light hr { border-top-color:#d4d9e0; }
+  #panel.light .section-tab-chip { background:#e9edf3; color:#20242b; border-color:#c6cfdb; }
+  #panel.light .section-tab-chip.active { background:#3b76b5; color:#fff; border-color:#3b76b5; }
+  #panel.light label { color:#303945 !important; }
 </style>
 
 <div id="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span class="dot"></span></div>
 <div id="panel">
   <div class="title">
     <span>Persona Editor</span>
-    <span style="font-weight:normal;font-size:10px;color:#999;">v${VERSION}</span>
+    <button id="theme-toggle" type="button" title="라이트/다크 테마 전환">☀ 라이트</button>
   </div>
   <div class="room" id="room"></div>
 
@@ -450,7 +474,6 @@
 
   <div class="row">
     <button id="refresh">새로고침</button>
-    <button id="rec-diagnose" type="button">추천 프로필 진단 (복사)</button>
   </div>
 
   <hr>
@@ -462,6 +485,23 @@
 `;
 
     const el = (id) => root.getElementById(id);
+    const THEME_KEY = "zeta-persona-editor-theme";
+    const panelTheme = () => {
+        try { return localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark"; }
+        catch { return "dark"; }
+    };
+    function applyPanelTheme(theme) {
+        const light = theme === "light";
+        el("panel").classList.toggle("light", light);
+        el("theme-toggle").textContent = light ? "☾ 다크" : "☀ 라이트";
+        el("theme-toggle").setAttribute("aria-label", light ? "다크 테마로 전환" : "라이트 테마로 전환");
+    }
+    applyPanelTheme(panelTheme());
+    el("theme-toggle").addEventListener("click", () => {
+        const next = el("panel").classList.contains("light") ? "dark" : "light";
+        applyPanelTheme(next);
+        try { localStorage.setItem(THEME_KEY, next); } catch {}
+    });
 
     const btnEl = el("btn");
     const panelEl = el("panel");
@@ -2368,13 +2408,6 @@
     modePlotBtn.addEventListener("click", () => switchMode("plot"));
     modeLorebookBtn.addEventListener("click", () => switchMode("lorebook"));
 
-    el("rec-diagnose").addEventListener("click", async () => {
-        if (!capturedAuth) { alert("인증 정보가 아직 감지되지 않았습니다."); return; }
-        await refreshRecData();
-        const safe = JSON.stringify(getSafeRecDiagnostic(), null, 2);
-        try { await navigator.clipboard.writeText(safe); alert("진단 결과가 복사되었습니다. 인증 토큰과 프로필 본문은 포함되지 않습니다.\n\n" + safe); }
-        catch { prompt("진단 결과를 복사해주세요 (본문·토큰 제외)", safe); }
-    });
     el("refresh").addEventListener("click", async () => {
         if (!lastPlotId) await resolvePlotIdActively();
 
