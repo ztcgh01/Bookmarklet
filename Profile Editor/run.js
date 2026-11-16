@@ -1777,15 +1777,9 @@
                 if (ok) {
                     rebuildPersonaDropdown();
                     if (!tryApplySavedPersonaSelection() && !activePersonaId) {
-                        const selectedCustom = personaList.find(p => p && p.selected);
-                        if (selectedCustom) {
-                            loadPersonaIntoEditor(selectedCustom.id);
-                        } else {
-                            const recTargets = getRecTargets(recRoomData);
-                            if (recTargets.length) {
-                                loadPersonaIntoEditor(REC_KEY_PREFIX + recTargets[0].key);
-                            }
-                        }
+                        const connected = getActiveConnectedKey();
+                        if (connected) loadPersonaIntoEditor(connected);
+                        else setSaveState("error", "연결 프로필 미확인 · 직접 선택 필요");
                     }
                     updateStatus();
                 }
@@ -2261,20 +2255,11 @@
             if (personaList.length || getRecTargets(recRoomData).length) {
                 rebuildPersonaDropdown();
                 if (!tryApplySavedPersonaSelection()) {
-                    if (activePersonaId) {
-                        loadPersonaIntoEditor(activePersonaId);
-                    } else {
-                        const selectedCustom = personaList.find(p => p && p.selected);
-                        if (selectedCustom) {
-                            loadPersonaIntoEditor(selectedCustom.id);
-                        } else {
-                            const recTargets = getRecTargets(recRoomData);
-                            if (recTargets.length) {
-                                loadPersonaIntoEditor(REC_KEY_PREFIX + recTargets[0].key);
-                            } else if (personaList[0]) {
-                                loadPersonaIntoEditor(personaList[0].id);
-                            }
-                        }
+                    if (activePersonaId) loadPersonaIntoEditor(activePersonaId);
+                    else {
+                        const connected = getActiveConnectedKey();
+                        if (connected) loadPersonaIntoEditor(connected);
+                        else setSaveState("error", "연결 프로필 미확인 · 직접 선택 필요");
                     }
                 }
             } else {
@@ -2350,14 +2335,12 @@
                 console.error("🩶 PersonaEditor 새로고침 실패:", err);
             }
             if (!tryApplySavedPersonaSelection() && !activePersonaId) {
-                const selectedCustom = personaList.find(p => p && p.selected);
-                if (selectedCustom) {
-                    loadPersonaIntoEditor(selectedCustom.id);
-                } else {
-                    const recTargets = getRecTargets(recRoomData);
-                    if (recTargets.length) {
-                        loadPersonaIntoEditor(REC_KEY_PREFIX + recTargets[0].key);
-                    }
+                const connected = getActiveConnectedKey();
+                if (connected) loadPersonaIntoEditor(connected);
+                else {
+                    descEl.value = "";
+                    setSaveState("error", "연결 프로필 미확인 · 직접 선택 또는 진단 필요");
+                    updateCount();
                 }
             } else if (activePersonaId) {
                 // [v2.6.3] 이미 선택돼 있던 항목이 있다면, 방금 새로고침으로 받아온 최신
