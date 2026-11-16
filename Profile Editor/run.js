@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Zeta Persona Quick Editor
 // @namespace    zeta-persona-editor
-// @version      2.6.8-profile-fix2
+// @version      2.6.8-profile-fix3
 // @description  현재 방의 유저 페르소나(+추천 프로필) / {{char}} 상세 / 로어북을 자동으로 불러와서, 페이지 이동 없이 바로 수정/자동저장하는 미니 에디터
 // @match        https://zeta-ai.io/*
 // @match        https://*.zeta-ai.io/*
@@ -19,7 +19,7 @@
     }
     window.__ZETA_PERSONA_EDITOR_RUNNING__ = true;
 
-    const VERSION = "2.6.8-profile-fix2"; // [v2.6.8] 제목(name)은 2400자 합계와 무관한 별개 20자 제한 필드로 처리(합계 제외, 20자 표시, 탭 나누기 제외)
+    const VERSION = "2.6.8-profile-fix3"; // [v2.6.8] 제목(name)은 2400자 합계와 무관한 별개 20자 제한 필드로 처리(합계 제외, 20자 표시, 탭 나누기 제외)
     // [v2.6.7] {{char}}(플롯) 모드에 "제목(name)" 편집 항목 추가 — 드롭다운에서 선택해 수정/저장 가능
     // [v2.6.6] {{user}} 프로필(직접 만든 것만, 추천프로필 제외) 삭제 버튼 추가
     // [v2.6.5] {{user}} 첫 오픈 시 로컬 캐시(마지막 선택)보다 실제 연결(🔗)된 프로필을 우선 로드하도록 수정
@@ -592,7 +592,7 @@
 
     function getRecTargets(roomData) {
         const list = (roomData && roomData.plot && roomData.plot.chatProfiles) || [];
-        return list.map(cp => ({
+        const targets = list.map(cp => ({
             key: cp.id,
             label: `🌟 추천프로필: ${cp.name || "이름없음"}`,
             get: () => {
@@ -600,6 +600,19 @@
                 return edited !== null ? edited : (cp.description || "");
             }
         }));
+        // The room-specific edited recommendation may reference an ID no longer
+        // present in the plot's creator-template array. Keep it as its own item.
+        const me = recMeData;
+        if (me && me.selected === true && me.plotChatProfileId != null &&
+            typeof me.description === "string" &&
+            !targets.some(t => String(t.key) === String(me.plotChatProfileId))) {
+            targets.unshift({
+                key: me.plotChatProfileId,
+                label: `🌟 연결된 추천프로필: ${me.name || "(이름없음)"}`,
+                get: () => verifiedRecDescription(me.plotChatProfileId) || ""
+            });
+        }
+        return targets;
     }
 
     function updateStatus() {
@@ -954,7 +967,7 @@
     function loadPersonaIntoEditor(key) {
         if (isRecKey(key)) {
             const recId = recIdFromKey(key);
-            const t = getRecTargets(recRoomData).find(x => x.key === recId);
+            const t = getRecTargets(recRoomData).find(x => String(x.key) === String(recId));
             if (!t) return;
             activePersonaId = key;
             saveSavedPersonaSelection(roomId, key);
@@ -995,7 +1008,7 @@
         // A valid room-specific recommendation takes precedence over plot-wide selected flags.
         if (recMeData && recMeData.selected && recMeData.plotChatProfileId) {
             const recTargets = getRecTargets(recRoomData);
-            const hit = recTargets.find(t => t.key === recMeData.plotChatProfileId);
+            const hit = recTargets.find(t => String(t.key) === String(recMeData.plotChatProfileId));
             if (hit && isRecVerified(hit.key)) return REC_KEY_PREFIX + hit.key;
         }
         const selectedCustom = personaList.find(p => p && p.selected);
@@ -1033,7 +1046,7 @@
         }
         if (isRecKey(saved)) {
             const recId = recIdFromKey(saved);
-            if (getRecTargets(recRoomData).some(t => t.key === recId)) {
+            if (getRecTargets(recRoomData).some(t => String(t.key) === String(recId))) {
                 loadPersonaIntoEditor(saved);
                 return true;
             }
@@ -1923,6 +1936,11 @@
         clearErrorDetail();
 
         const recId = recIdFromKey(activePersonaId);
+        if (String(recMeData && recMeData.plotChatProfileId) !== String(recId) || !recMeData || recMeData.selected !== true) {
+            setSaveState("error", "현재 방의 연결 추천프로필과 불일치 · 저장 차단");
+            saveInFlight = false;
+            return;
+        }
         syncActiveSectionFromEditor();
         const usesSections = sectionsState && sectionsState.key === activePersonaId;
         // [v2.6.2] 위 doAutoSavePersona와 동일한 이유로 sanitizeSurrogates 적용.
@@ -1943,7 +1961,7 @@
                 if (saved) {
                     recMeData = saved;
                 } else {
-                    recMeData = { plotChatProfileId: recId, description: newDesc };
+                    recMeData = { plotChatProfileId: recId, description: newDesc, selected: true };
                 }
                 if (usesSections) persistSections(sectionsState.storageKey, sectionsState.sections);
                 setSaveState("saved", "저장됨 ✅");
